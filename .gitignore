@@ -1,0 +1,12 @@
+out
+*.so
+*.pyc
+.config
+.config.old
+klippy/.version
+klippy/extras/.ipynb_checkpoints*
+*.directory
+**/.vscode/*
+klippy-env/*
+_test*
+klippy/extras/dynamicmacros.py
