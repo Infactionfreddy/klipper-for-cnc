@@ -1,0 +1,433 @@
+{
+  "timestamp": "2025-12-09 15:59:40",
+  "moonraker_url": "http://localhost:7125",
+  "total_tested": 60,
+  "summary": {
+    "supported": 5,
+    "not_supported": 0,
+    "errors": 54,
+    "skipped": 1
+  },
+  "results": [
+    {
+      "code": "M0",
+      "description": "Program Stop / Pause",
+      "command": "M0",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M1",
+      "description": "Optional Stop",
+      "command": "M1",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M2",
+      "description": "Program End",
+      "command": "M2",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M3",
+      "description": "Spindle On Clockwise",
+      "command": "M3 S1000",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M4",
+      "description": "Spindle On Counter-clockwise",
+      "command": "M4 S1000",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M5",
+      "description": "Spindle Off",
+      "command": "M5",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M6",
+      "description": "Tool Change",
+      "command": "M6 T1",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M7",
+      "description": "Coolant On (Mist)",
+      "command": "M7",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M8",
+      "description": "Coolant On (Flood)",
+      "command": "M8",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M9",
+      "description": "Coolant Off",
+      "command": "M9",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M18",
+      "description": "Disable Steppers",
+      "command": "M18",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M19",
+      "description": "Spindle Orient",
+      "command": "M19 R0",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M20",
+      "description": "List SD Card",
+      "command": "M20",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M21",
+      "description": "Init SD Card",
+      "command": "M21",
+      "status": "supported",
+      "message": "OK"
+    },
+    {
+      "code": "M23",
+      "description": "Select SD File",
+      "command": "M23",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M24",
+      "description": "Start/Resume SD Print",
+      "command": "M24",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M25",
+      "description": "Pause SD Print",
+      "command": "M25",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M26",
+      "description": "Set SD Position",
+      "command": "M26",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M27",
+      "description": "Report SD Print Status",
+      "command": "M27",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M30",
+      "description": "Delete SD File",
+      "command": "M30",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M48",
+      "description": "Enable Speed Override",
+      "command": "M48",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M49",
+      "description": "Disable Speed Override",
+      "command": "M49",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M50",
+      "description": "Enable Feed Override",
+      "command": "M50",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M51",
+      "description": "Disable Feed Override",
+      "command": "M51",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M52",
+      "description": "Enable Adaptive Feed",
+      "command": "M52",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M53",
+      "description": "Disable Adaptive Feed",
+      "command": "M53",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M60",
+      "description": "Pause for Pallet Change",
+      "command": "M60",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M61",
+      "description": "Set Current Tool",
+      "command": "M61 Q1",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M62",
+      "description": "Digital Output Sync",
+      "command": "M62 P0",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M63",
+      "description": "Digital Output Immediate",
+      "command": "M63 P0",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M64",
+      "description": "Digital Output Sync",
+      "command": "M64 P0",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M65",
+      "description": "Digital Output Immediate",
+      "command": "M65 P0",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M66",
+      "description": "Wait for Input",
+      "command": "M66 P0 E0",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M67",
+      "description": "Analog Output Sync",
+      "command": "M67 E0 Q0.5",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M68",
+      "description": "Analog Output Immediate",
+      "command": "M68 E0 Q0.5",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M70",
+      "description": "Save Modal State",
+      "command": "M70",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M71",
+      "description": "Invalidate Modal State",
+      "command": "M71",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M72",
+      "description": "Restore Modal State",
+      "command": "M72",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M73",
+      "description": "Set Print Progress",
+      "command": "M73 P50",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M82",
+      "description": "Set Extruder Absolute Mode",
+      "command": "M82",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M83",
+      "description": "Set Extruder Relative Mode",
+      "command": "M83",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M84",
+      "description": "Disable Steppers",
+      "command": "M84",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M98",
+      "description": "Call Subroutine",
+      "command": "M98",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M99",
+      "description": "Return from Subroutine",
+      "command": "M99",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M106",
+      "description": "Set Fan Speed",
+      "command": "M106 S128",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M107",
+      "description": "Fan Off",
+      "command": "M107",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M110",
+      "description": "Set Line Number",
+      "command": "M110 N0",
+      "status": "supported",
+      "message": "OK"
+    },
+    {
+      "code": "M112",
+      "description": "Emergency Stop",
+      "command": "M112",
+      "status": "skipped",
+      "message": "Emergency Stop - nicht getestet"
+    },
+    {
+      "code": "M114",
+      "description": "Get Current Position",
+      "command": "M114",
+      "status": "supported",
+      "message": "OK"
+    },
+    {
+      "code": "M115",
+      "description": "Get Firmware Version",
+      "command": "M115",
+      "status": "supported",
+      "message": "OK"
+    },
+    {
+      "code": "M117",
+      "description": "Display Message",
+      "command": "M117 Test",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M118",
+      "description": "Send Message",
+      "command": "M118 Test Message",
+      "status": "supported",
+      "message": "OK"
+    },
+    {
+      "code": "M119",
+      "description": "Get Endstop Status",
+      "command": "M119",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M140",
+      "description": "Set Bed Temperature",
+      "command": "M140 S0",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M190",
+      "description": "Wait for Bed Temperature",
+      "command": "M190 S0",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M204",
+      "description": "Set Acceleration",
+      "command": "M204 S1000",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M211",
+      "description": "Software Endstops",
+      "command": "M211",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M220",
+      "description": "Set Speed Factor Override",
+      "command": "M220 S100",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M221",
+      "description": "Set Flow Percentage",
+      "command": "M221 S100",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    },
+    {
+      "code": "M400",
+      "description": "Wait for Moves to Finish",
+      "command": "M400",
+      "status": "error",
+      "message": "Connection Error (Klipper m\u00f6glicherweise im startup state)"
+    }
+  ]
+}

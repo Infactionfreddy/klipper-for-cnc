@@ -15,19 +15,8 @@ class CNCProgramControl:
         self.gcode.register_command('M1', self.cmd_M1, desc=self.cmd_M1_help)
         self.gcode.register_command('M2', self.cmd_M2, desc=self.cmd_M2_help)
         
-        # M30 might already exist in Klipper - unregister first if needed
-        try:
-            # Try to get existing M30 command
-            existing_m30 = self.gcode.ready_gcode_handlers.get('M30')
-            if existing_m30:
-                # Unregister old M30 and register our CNC-compliant version
-                del self.gcode.ready_gcode_handlers['M30']
-                self.gcode.register_command('M30', self.cmd_M30, desc=self.cmd_M30_help)
-            else:
-                self.gcode.register_command('M30', self.cmd_M30, desc=self.cmd_M30_help)
-        except:
-            # If no existing M30, just register ours
-            self.gcode.register_command('M30', self.cmd_M30, desc=self.cmd_M30_help)
+        # Note: M30 is NOT overridden - kept as original Klipper behavior (cmd_error)
+        # For CNC program end with reset, use M2 RESTART instead
         
         # Optional stop enabled by default
         self.optional_stop_enabled = True
@@ -91,28 +80,36 @@ class CNCProgramControl:
             self.gcode.respond_info("M1: Optional stop skipped (disabled)")
     
     # M2 - Program End
-    cmd_M2_help = "Program end"
+    cmd_M2_help = "Program end (M2) or program end with reset (M2 RESTART)"
     def cmd_M2(self, gcmd):
         """
-        M2 - Beendet das Programm.
+        M2 - Beendet das Programm mit Dual-Behavior:
         
-        Standard: LinuxCNC M-Code
+        Standard Mode (keine Parameter):
+        - M2 → Program End
         - Beendet das laufende Programm
         - Wechselt in MDI-Modus
         - Setzt Offsets und Modi zurück
         
-        Klipper Implementierung:
-        - Stoppt alle Bewegungen (M400)
-        - Deaktiviert Heater/Spindel
-        - Setzt G-Code Status zurück
-        - KEIN automatischer Restart (wie M30)
+        Reset Mode (mit RESTART Parameter):
+        - M2 RESTART → Program End with Reset
+        - Wie M2, aber zusätzlich:
+        - Bereitet Maschine für nächsten Zyklus vor
+        - Signalisiert "Complete" für Moonraker Auto-Reset
+        - File-Position wird zurückgesetzt (via Moonraker)
         
-        Effekte:
+        Standard: LinuxCNC M-Code (erweitert)
+        
+        Effekte (beide Modi):
         - Spindel gestoppt (falls vorhanden)
         - Kühlmittel aus
         - Vorschub auf Defaults
         - Koordinatensystem auf Standard (G54)
         """
+        # Check for RESTART parameter
+        params = gcmd.get_raw_command_parameters().strip().upper()
+        restart_mode = 'RESTART' in params
+        
         # Finish all pending moves
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.wait_moves()
@@ -126,35 +123,21 @@ class CNCProgramControl:
         # Turn off coolant (if configured)
         self._stop_coolant()
         
-        self.gcode.respond_info("M2: Program end - Ready for new program")
-    
-    # M30 - Program End with Reset
-    cmd_M30_help = "Program end with reset"
-    def cmd_M30(self, gcmd):
-        """
-        M30 - Beendet das Programm und führt einen Reset durch.
-        
-        Standard: LinuxCNC M-Code
-        - Wie M2, aber zusätzlich:
-        - Spult das Programm zurück (rewind)
-        - Bereitet Maschine für nächsten Zyklus vor
-        
-        Klipper Implementierung:
-        - Alle M2 Effekte
-        - Zusätzlich: Bereitet System für Neustart vor
-        - In Moonraker: Setzt File-Position auf Anfang
-        """
-        # Do everything M2 does
-        self.cmd_M2(gcmd)
-        
-        # Additional M30-specific actions
-        self.gcode.respond_info("M30: Program end with reset - Ready for restart")
-        
-        # Note: Actual file rewind is handled by Moonraker/Frontend
-        # Klipper just signals program completion
+        if restart_mode:
+            # M2 RESTART - Program End with Reset
+            self.gcode.respond_info("M2 RESTART: Program end with reset - Ready for restart")
+            
+            # Signal completion for Moonraker auto-reset
+            try:
+                self.printer.send_event("virtual_sdcard:complete")
+            except:
+                pass  # Event might not be registered
+        else:
+            # M2 - Standard Program End
+            self.gcode.respond_info("M2: Program end - Ready for new program (MDI mode)")
     
     def _reset_gcode_state(self):
-        """Reset G-Code state to defaults (like after M2/M30)"""
+        """Reset G-Code state to defaults (like after M2/M2 RESTART)"""
         # Reset to absolute mode (G90)
         self.gcode.run_script_from_command("G90")
         
