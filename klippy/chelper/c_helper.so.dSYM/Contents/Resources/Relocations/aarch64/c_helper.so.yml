@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     '/Users/frede/Documents/Programming/CNC/KlipperCNC/klipper-cnc/klippy/chelper/c_helper.so'
+relocations:     []
+...

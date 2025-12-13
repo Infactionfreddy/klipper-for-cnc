@@ -1,90 +1,81 @@
-# Machine Mode Management for Klipper CNC/3D Hybrid System
+# Machine Mode Management for CNC and 3D Printing
 #
-# Copyright (C) 2024  Frederik <frederik@klippercnc.dev>
+# Copyright (C) 2024  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
-"""
-Machine Mode Module
-
-Manages global machine_mode variable for switching between:
-- cnc_spindle: CNC machining with spindle
-- cnc_laser: Laser cutting/engraving
-- 3d_print: 3D printing with extruder
-
-Supports 3/4/5/6-axis configurations (XYZ, XYZA, XYZAB, XYZABC)
-
-Commands:
-- SET_MACHINE_MODE MODE=<mode>
-- GET_MACHINE_MODE
-"""
-
 import logging
 
-
 class MachineMode:
-    """Manages machine mode switching and axis configuration"""
+    """
+    Global machine mode management for CNC and 3D printing operations.
     
-    # Valid machine modes (simplified: cnc or 3d_print)
+    Manages switching between:
+    - Machine modes: 'cnc' or '3d_print'
+    - Tool modes (CNC only): 'spindle' or 'laser'
+    - Axis configurations: XYZ (3), XYZA (4), XYZAB (5), XYZABC (6)
+    """
+    
     VALID_MODES = ['cnc', '3d_print']
-    
-    # Valid tool modes (only used when machine_mode=cnc)
     VALID_TOOL_MODES = ['spindle', 'laser']
-    
-    # Valid axis configurations
     VALID_AXIS = ['XYZ', 'XYZA', 'XYZAB', 'XYZABC']
     
     def __init__(self, config):
         self.printer = config.get_printer()
         self.gcode = self.printer.lookup_object('gcode')
         
-        # Get initial machine mode from config
-        self.machine_mode = config.get('machine_mode', '3d_print').lower()
+        # Get boot-time configuration (UNCHANGEABLE at runtime)
+        self.boot_mode = config.get('default_mode', 'cnc')
+        self.boot_tool_mode = config.get('default_tool_mode', 'spindle')
         
-        # Validate machine mode
-        if self.machine_mode not in self.VALID_MODES:
+        # Current runtime mode (can be changed only if allow_mode_switch=True)
+        self.machine_mode = self.boot_mode
+        self.tool_mode = self.boot_tool_mode
+        
+        # Allow runtime mode switching? (default: False for safety)
+        self.allow_mode_switch = config.getboolean('allow_mode_switch', False)
+        
+        # Validate boot-time configuration
+        if self.boot_mode not in self.VALID_MODES:
             raise config.error(
-                f"Invalid machine_mode '{self.machine_mode}'. "
+                f"Invalid default_mode '{self.boot_mode}'. "
                 f"Must be one of: {', '.join(self.VALID_MODES)}"
             )
         
-        # Get tool mode (only relevant for CNC mode)
-        self.tool_mode = config.get('tool_mode', 'spindle').lower()
-        if self.tool_mode not in self.VALID_TOOL_MODES:
+        if self.boot_tool_mode not in self.VALID_TOOL_MODES:
             raise config.error(
-                f"Invalid tool_mode '{self.tool_mode}'. "
+                f"Invalid default_tool_mode '{self.boot_tool_mode}'. "
                 f"Must be one of: {', '.join(self.VALID_TOOL_MODES)}"
             )
         
-        # Get axis configuration
-        self.axis_names = config.get('axis', 'XYZ').upper()
+        # Get axis configuration from printer config
+        printer_config = config.getsection('printer')
+        axis_config = printer_config.get('axis', 'XYZ').upper()
         
-        # Validate axis configuration
-        if self.axis_names not in self.VALID_AXIS:
+        if axis_config not in self.VALID_AXIS:
             raise config.error(
-                f"Invalid axis '{self.axis_names}'. "
+                f"Invalid axis configuration '{axis_config}'. "
                 f"Must be one of: {', '.join(self.VALID_AXIS)}"
             )
         
-        self.axis_count = len(self.axis_names)
+        self.axis_names = axis_config
+        self.axis_count = len(axis_config)
         
-        # References to tool control modules (set in _handle_ready)
-        self.spindle_control = None
-        self.laser_control = None
-        self.extruder = None
-        
-        # Module availability flags
+        # Initialize module availability flags
         self.has_spindle = False
         self.has_laser = False
         self.has_extruder = False
         
-        # Register commands
+        self.spindle_control = None
+        self.laser_control = None
+        self.extruder = None
+        
+        # Register GCode commands
         self.gcode.register_command(
             'SET_MACHINE_MODE',
             self.cmd_SET_MACHINE_MODE,
             desc=self.cmd_SET_MACHINE_MODE_help
         )
-        
         self.gcode.register_command(
             'GET_MACHINE_MODE',
             self.cmd_GET_MACHINE_MODE,
@@ -94,28 +85,28 @@ class MachineMode:
         # Register for ready event
         self.printer.register_event_handler("klippy:ready", self._handle_ready)
         
+        switch_status = "ENABLED" if self.allow_mode_switch else "DISABLED (boot-time lock)"
         logging.info(
-            f"MachineMode: Initialized with mode={self.machine_mode}, "
-            f"axis={self.axis_names} ({self.axis_count} axes)"
+            f"MachineMode: Initialized - boot_mode={self.boot_mode} (LOCKED), "
+            f"boot_tool_mode={self.boot_tool_mode}, axis={self.axis_names}, "
+            f"runtime_switching={switch_status}"
         )
     
     def _handle_ready(self):
-        """Detect available tool control modules"""
+        """Check for available modules after printer is ready"""
         
-        # Check for spindle_control
+        # Check for spindle control
         try:
             self.spindle_control = self.printer.lookup_object('spindle_control')
             self.has_spindle = True
-            logging.info("MachineMode: spindle_control detected")
         except:
             self.spindle_control = None
             self.has_spindle = False
         
-        # Check for laser_control
+        # Check for laser control
         try:
             self.laser_control = self.printer.lookup_object('laser_control')
             self.has_laser = True
-            logging.info("MachineMode: laser_control detected")
         except:
             self.laser_control = None
             self.has_laser = False
@@ -124,6 +115,10 @@ class MachineMode:
         try:
             self.extruder = self.printer.lookup_object('extruder')
             self.has_extruder = True
+        except:
+            self.extruder = None
+            self.has_extruder = False
+        
         # Store machine_mode, tool_mode and axis_names in printer object for global access
         self.printer.machine_mode = self.machine_mode
         self.printer.tool_mode = self.tool_mode
@@ -135,14 +130,8 @@ class MachineMode:
             f"tool_mode={self.tool_mode}, "
             f"spindle={self.has_spindle}, laser={self.has_laser}, "
             f"extruder={self.has_extruder}"
-        )elf.printer.machine_mode = self.machine_mode
-        self.printer.axis_names = self.axis_names
-        self.printer.axis_count = self.axis_count
-        
-        logging.info(
-            f"MachineMode: Ready - mode={self.machine_mode}, "
-            f"spindle={self.has_spindle}, laser={self.has_laser}, "
-            f"extruder={self.has_extruder}"
+        )
+    
     def _validate_mode_availability(self, mode, tool_mode=None):
         """Check if required module is available for given mode"""
         
@@ -163,31 +152,32 @@ class MachineMode:
         elif mode == '3d_print' and not self.has_extruder:
             raise self.gcode.error(
                 "3d_print mode requires [extruder] section in config"
-            )aise self.gcode.error(
-                "3d_print mode requires [extruder] section in config"
             )
     
     def get_mode(self):
         """Get current machine mode"""
         return self.machine_mode
     
+    def get_tool_mode(self):
+        """Get current tool mode"""
+        return self.tool_mode
+    
     def get_axis_names(self):
-        """Get current axis configuration"""
+        """Get axis names (e.g. 'XYZABC')"""
         return self.axis_names
     
-    def is_cnc_mode(self):
-        """Check if in CNC mode"""
-        return self.machine_mode == 'cnc'
-    
-    def is_3d_print_mode(self):
-        """Check if in 3D print mode"""
-        return self.machine_mode == '3d_print'
+    def get_axis_count(self):
+        """Get number of axes"""
+        return self.axis_count
     
     def get_status(self, eventtime):
-        """Return status information"""
+        """Return status for mainsail/fluidd"""
         return {
             'machine_mode': self.machine_mode,
             'tool_mode': self.tool_mode,
+            'boot_mode': self.boot_mode,
+            'boot_tool_mode': self.boot_tool_mode,
+            'allow_mode_switch': self.allow_mode_switch,
             'axis_names': self.axis_names,
             'axis_count': self.axis_count,
             'has_spindle': self.has_spindle,
@@ -196,14 +186,112 @@ class MachineMode:
             'valid_modes': self.VALID_MODES,
             'valid_tool_modes': self.VALID_TOOL_MODES,
             'valid_axis': self.VALID_AXIS,
-        }f tool_mode not in self.VALID_TOOL_MODES:
+        }
+    
+    cmd_SET_MACHINE_MODE_help = (
+        "Switch machine mode between cnc and 3d_print. "
+        "Example: SET_MACHINE_MODE MODE=cnc TOOL_MODE=spindle "
+        "(only if allow_mode_switch=True in config)"
+    )
+    def cmd_SET_MACHINE_MODE(self, gcmd):
+        """Set machine mode (cnc or 3d_print) and optionally tool mode"""
+        
+        # Get parameters
+        mode = gcmd.get('MODE', self.machine_mode).lower()
+        tool_mode = gcmd.get('TOOL_MODE', self.tool_mode).lower()
+        
+        # Check if trying to switch away from boot_mode
+        if mode != self.boot_mode and not self.allow_mode_switch:
+            raise gcmd.error(
+                f"Runtime mode switching DISABLED. Boot mode is '{self.boot_mode}' (locked). "
+                f"Set 'allow_mode_switch: True' in [machine_mode] config to enable runtime switching."
+            )
+        
+        # Validate mode
+        if mode not in self.VALID_MODES:
+            raise gcmd.error(
+                f"Invalid MODE '{mode}'. Must be one of: {', '.join(self.VALID_MODES)}"
+            )
+        
+        # Validate tool_mode (only for CNC mode)
+        if mode == 'cnc':
+            if tool_mode not in self.VALID_TOOL_MODES:
+                raise gcmd.error(
+                    f"Invalid TOOL_MODE '{tool_mode}'. "
+                    f"Must be one of: {', '.join(self.VALID_TOOL_MODES)}"
+                )
+            
+            # Check if required module is available
+            self._validate_mode_availability(mode, tool_mode)
+        else:
+            # For 3d_print mode, check if extruder is available
+            self._validate_mode_availability(mode)
+        
+        # Store old values
+        old_mode = self.machine_mode
+        old_tool_mode = self.tool_mode
+        
+        # Update mode
+        self.machine_mode = mode
+        self.printer.machine_mode = mode
+        
+        # Update tool_mode if in CNC mode
+        if mode == 'cnc':
+            self.tool_mode = tool_mode
+            self.printer.tool_mode = tool_mode
+        
+        # Log change
+        if mode == 'cnc':
+            logging.info(
+                f"MachineMode: Changed from {old_mode} to {mode} "
+                f"(tool_mode: {old_tool_mode} -> {tool_mode})"
+            )
+            gcmd.respond_info(
+                f"Machine mode changed to {mode} with tool_mode={tool_mode}"
+            )
+        else:
+            logging.info(f"MachineMode: Changed from {old_mode} to {mode}")
+            gcmd.respond_info(f"Machine mode changed to {mode}")
+    
+    cmd_GET_MACHINE_MODE_help = "Get current machine mode and tool mode"
+    def cmd_GET_MACHINE_MODE(self, gcmd):
+        """Get current machine mode and tool mode"""
+        
+        if self.machine_mode == 'cnc':
+            msg = f"Machine mode: {self.machine_mode}, Tool mode: {self.tool_mode}"
+        else:
+            msg = f"Machine mode: {self.machine_mode}"
+        
+        msg += f", Axis: {self.axis_names} ({self.axis_count} axes)"
+        
+        # Add boot_mode info
+        if self.machine_mode != self.boot_mode or self.tool_mode != self.boot_tool_mode:
+            msg += f" (Boot: {self.boot_mode}/{self.boot_tool_mode})"
+        else:
+            msg += f" (Boot-locked)"
+        
+        switch_status = "enabled" if self.allow_mode_switch else "disabled"
+        msg += f", Runtime switching: {switch_status}"
+        
+        gcmd.respond_info(msg)
+        logging.info(f"MachineMode: Status - {msg}")
+    
+    def set_tool_mode(self, tool_mode):
+        """Set tool mode (spindle or laser) - for CNC mode only"""
+        
+        if self.machine_mode != 'cnc':
+            raise self.gcode.error(
+                "tool_mode can only be changed in CNC mode"
+            )
+        
+        if tool_mode not in self.VALID_TOOL_MODES:
             raise self.gcode.error(
                 f"Invalid tool_mode '{tool_mode}'. "
                 f"Must be one of: {', '.join(self.VALID_TOOL_MODES)}"
-    cmd_SET_MACHINE_MODE_help = (
-        "Switch machine mode between cnc and 3d_print. "
-        "Example: SET_MACHINE_MODE MODE=cnc TOOL=spindle"
-    )   if tool_mode == 'spindle' and not self.has_spindle:
+            )
+        
+        # Check if required module is available
+        if tool_mode == 'spindle' and not self.has_spindle:
             raise self.gcode.error(
                 "tool_mode=spindle requires [spindle_control] section"
             )
@@ -217,173 +305,23 @@ class MachineMode:
         self.printer.tool_mode = tool_mode
         
         logging.info(f"MachineMode: Tool mode changed from {old_tool_mode} to {tool_mode}")
-        return old_tool_modedle', 'cnc_laser']
+        return old_tool_mode
     
     def is_3d_print_mode(self):
         """Check if in 3D print mode"""
         return self.machine_mode == '3d_print'
     
-    def get_status(self, eventtime):
-        """Return status information"""
-        return {
-            'machine_mode': self.machine_mode,
-            'axis_names': self.axis_names,
-            'axis_count': self.axis_count,
-            'has_spindle': self.has_spindle,
-            'has_laser': self.has_laser,
-            'has_extruder': self.has_extruder,
-            'valid_modes': self.VALID_MODES,
-            'valid_axis': self.VALID_AXIS,
-        }
+    def is_cnc_mode(self):
+        """Check if in CNC mode"""
+        return self.machine_mode == 'cnc'
     
-    cmd_SET_MACHINE_MODE_help = (
-        "Switch machine mode between cnc_spindle, cnc_laser, and 3d_print. "
-        "Example: SET_MACHINE_MODE MODE=cnc_spindle"
-    def cmd_SET_MACHINE_MODE(self, gcmd):
-        """Handle SET_MACHINE_MODE command"""
-        
-        # Get requested mode
-        mode = gcmd.get('MODE', None)
-        if mode is None:
-            raise gcmd.error(
-                "SET_MACHINE_MODE requires MODE parameter. "
-                f"Valid modes: {', '.join(self.VALID_MODES)}"
-            )
-        
-        mode = mode.lower()
-        
-        # Validate mode
-        if mode not in self.VALID_MODES:
-            raise gcmd.error(
-                f"Invalid MODE '{mode}'. "
-                f"Must be one of: {', '.join(self.VALID_MODES)}"
-            )
-        
-        # Get optional TOOL parameter (only for CNC mode)
-        tool_mode = gcmd.get('TOOL', self.tool_mode if mode == 'cnc' else None)
-        if tool_mode:
-            tool_mode = tool_mode.lower()
-            if tool_mode not in self.VALID_TOOL_MODES:
-                raise gcmd.error(
-                    f"Invalid TOOL '{tool_mode}'. "
-                    f"Must be one of: {', '.join(self.VALID_TOOL_MODES)}"
-                )
-        
-        # Check if mode is available
-        try:
-            if mode == 'cnc':
-                self._validate_mode_availability(mode, tool_mode)
-            else:
-                self._validate_mode_availability(mode)
-        except Exception as e:
-            raise gcmd.error(str(e))
-        
-        # Store old modes for logging
-        old_mode = self.machine_mode
-        old_tool_mode = self.tool_mode
-        
-        # Switch mode
-        self.machine_mode = mode
-        self.printer.machine_mode = mode
-        
-        # Switch tool mode if in CNC mode
-        if mode == 'cnc' and tool_mode:
-            self.tool_mode = tool_mode
-    def cmd_GET_MACHINE_MODE(self, gcmd):
-        """Handle GET_MACHINE_MODE command"""
-        
-        # Build response
-        response = f"Machine Mode: {self.machine_mode}\n"
-        if self.machine_mode == 'cnc':
-            response += f"Tool Mode: {self.tool_mode}\n"
-        response += f"Axis Configuration: {self.axis_names} ({self.axis_count} axes)\n"
-        response += "\nAvailable Modules:\n"
-        response += f"  Spindle: {'✓' if self.has_spindle else '✗'}\n"
-        response += f"  Laser: {'✓' if self.has_laser else '✗'}\n"
-        response += f"  Extruder: {'✓' if self.has_extruder else '✗'}\n"
-        response += "\nAvailable Modes:\n"
-        
-        for mode in self.VALID_MODES:
-            # Check if mode is available
-            available = False
-            if mode == 'cnc':
-                available = self.has_spindle or self.has_laser
-            elif mode == '3d_print':
-                available = self.has_extruder
-            
-            status = '✓' if available else '✗'
-            current = ' (current)' if mode == self.machine_mode else ''
-            response += f"  {mode}: {status}{current}\n"
-        
-        # Show available tools for CNC mode
-        if self.machine_mode == 'cnc':
-            response += "\nAvailable Tools (CNC mode):\n"
-            for tool in self.VALID_TOOL_MODES:
-                available = False
-                if tool == 'spindle':
-                    available = self.has_spindle
-                elif tool == 'laser':
-                    available = self.has_laser
-                
-                status = '✓' if available else '✗'
-                current = ' (current)' if tool == self.tool_mode else ''
-                response += f"  {tool}: {status}{current}\n"
+    def is_spindle_mode(self):
+        """Check if in CNC spindle mode"""
+        return self.machine_mode == 'cnc' and self.tool_mode == 'spindle'
     
-    def cmd_GET_MACHINE_MODE(self, gcmd):
-        """Handle GET_MACHINE_MODE command"""
-        
-        # Build response
-        response = f"Machine Mode: {self.machine_mode}\n"
-        response += f"Axis Configuration: {self.axis_names} ({self.axis_count} axes)\n"
-        response += "\nAvailable Modules:\n"
-        response += f"  Spindle: {'✓' if self.has_spindle else '✗'}\n"
-        response += f"  Laser: {'✓' if self.has_laser else '✗'}\n"
-        response += f"  Extruder: {'✓' if self.has_extruder else '✗'}\n"
-        response += "\nAvailable Modes:\n"
-        
-        for mode in self.VALID_MODES:
-            # Check if mode is available
-            available = False
-            if mode == 'cnc_spindle':
-                available = self.has_spindle
-            elif mode == 'cnc_laser':
-                available = self.has_laser
-            elif mode == '3d_print':
-                available = self.has_extruder
-            
-            status = '✓' if available else '✗'
-            current = ' (current)' if mode == self.machine_mode else ''
-            response += f"  {mode}: {status}{current}\n"
-        
-        # Add position information if toolhead is ready
-        try:
-            toolhead = self.printer.lookup_object('toolhead')
-            pos = toolhead.get_position()
-            
-            response += "\nCurrent Position:\n"
-            for i, axis in enumerate(self.axis_names):
-                response += f"  {axis}: {pos[i]:.3f}\n"
-            
-            # Add extruder position
-            if len(pos) > self.axis_count:
-                response += f"  E: {pos[-1]:.3f}\n"
-            
-            # Add homed status
-            kin = toolhead.get_kinematics()
-            if hasattr(kin, 'get_status'):
-                kin_status = kin.get_status()
-                response += "\nHomed Axes:\n"
-                for axis in self.axis_names:
-                    axis_lower = axis.lower()
-                    homed = kin_status.get(f'homed_{axis_lower}', False)
-                    response += f"  {axis}: {'✓' if homed else '✗'}\n"
-        except:
-            # Toolhead not ready yet
-            response += "\n(Position information not available - printer not ready)"
-        
-        gcmd.respond_info(response)
-
+    def is_laser_mode(self):
+        """Check if in CNC laser mode"""
+        return self.machine_mode == 'cnc' and self.tool_mode == 'laser'
 
 def load_config(config):
-    """Load machine_mode module"""
     return MachineMode(config)

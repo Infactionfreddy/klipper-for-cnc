@@ -443,9 +443,10 @@ class GCodeMove:
         
         # Homed status for all axes
         homed_parts = []
+        eventtime = self.printer.get_reactor().monotonic()
         for kin_name, kin in toolhead.kinematics.items():
             if hasattr(kin, 'get_status'):
-                kin_status = kin.get_status()
+                kin_status = kin.get_status(eventtime)
                 for axis in self.axis_names:
                     axis_lower = axis.lower()
                     homed = kin_status.get(f'homed_{axis_lower}', False)

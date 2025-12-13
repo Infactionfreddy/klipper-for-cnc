@@ -220,10 +220,12 @@ class CNCMCodes:
                                    desc=self.cmd_M71_help)
         self.gcode.register_command('M72', self.cmd_M72, 
                                    desc=self.cmd_M72_help)
-        # M73 wird von display_status registriert - nicht hier registrieren
-        # um Konflikte zu vermeiden
-        # self.gcode.register_command('M73', self.cmd_M73, 
-        #                            desc=self.cmd_M73_help)
+        
+        # M73 - NICHT VERFÜGBAR
+        # M73 ist bereits von 'display_status' für Print Progress reserviert
+        # Alternative: M99 S (Safe) für Modal State Auto-Restore
+        # Verwendung: M73 P<percent> R<remaining_time> (3D Printing)
+        #           vs. M99 S1 (CNC Modal State Save with Auto-Restore)
         
         # Tool Mode Control
         self.gcode.register_mux_command("SET_TOOL_MODE", "MODE", None,
@@ -425,6 +427,7 @@ class CNCMCodes:
                 gcmd.respond_info("M5: Spindle STOP")
             
             else:
+                pass
             
         else:
             # Legacy behavior
@@ -713,18 +716,62 @@ class CNCMCodes:
         
         gcmd.respond_info(f"M98: Called subroutine O{program} ({repeats} times)")
     
-    cmd_M99_help = "Return from subroutine (Fanuc-Style)"
+    cmd_M99_help = "Return from subroutine (M99, M99 S1 save, M99 R1 restore)"
     def cmd_M99(self, gcmd):
-        """M99 - Return from subroutine (Fanuc-Style)
+        """M99 - Return from subroutine with optional auto-restore
         
-        Returns to calling program after M98.
-        In Klipper, this is handled automatically by O-code 'endsub'.
+        ISO 6983 Standard:
+        - M99 = Return from subroutine
+        
+        Klipper-CNC Extensions:
+        - M99 S1 = Save modal state with auto-restore flag
+        - M99 R1 = Return with explicit auto-restore
+        - M99 (no params) = Return (auto-restores if M99 S1 was used)
+        
+        Auto-Restore Integration:
+        - M99 S1 sets auto_restore flag in saved state
+        - M99 or M99 R1 automatically restores if flag is set
+        
+        Example:
+            M3 S10000       ; Start spindle
+            M99 S1          ; Save with auto-restore
+            o100 call       ; Call subroutine
+            (in o100:)
+              M3 S20000     ; Change spindle
+              M99           ; Return and auto-restore to S10000
         """
-        logging.info("CNC M-Codes: M99 - Return from subroutine")
+        # Check for S parameter (Save)
+        save = gcmd.get_int('S', 0)
+        # Check for R parameter (Restore)
+        restore = gcmd.get_int('R', 0)
         
-        # In Klipper, this is handled by 'endsub' keyword
-        # M99 is provided for Fanuc-compatibility
-        gcmd.respond_info("M99: Return from subroutine (use 'endsub' in Klipper O-code)")
+        if save:
+            # M99 S1 - Save with auto-restore
+            state = self._capture_modal_state()
+            state['auto_restore'] = True
+            self.modal_state_stack.append(state)
+            
+            logging.info("CNC M-Codes: M99 S1 - Modal state saved (auto-restore on M99/M99 R1)")
+            gcmd.respond_info("M99 S1: Modal state saved (will auto-restore on return)")
+            return
+        
+        # M99 or M99 R1 - Return from subroutine
+        # Check for auto-restore state
+        if self.modal_state_stack:
+            state = self.modal_state_stack[-1]
+            if state.get('auto_restore', False):
+                # Pop and restore state
+                state = self.modal_state_stack.pop()
+                self._restore_modal_state(state)
+                logging.info("CNC M-Codes: M99 - Auto-restored modal state (M99 S1)")
+                gcmd.respond_info("M99: Return from subroutine (modal state auto-restored)")
+                return
+        
+        # Standard M99 behavior without auto-restore
+        if restore:
+            gcmd.respond_info("M99 R1: Return from subroutine (no auto-restore state found)")
+        else:
+            gcmd.respond_info("M99: Return from subroutine (use 'endsub' in Klipper O-code)")
     
     # ========================================================================
     # MODAL STATE MANAGEMENT M-CODES
@@ -786,18 +833,6 @@ class CNCMCodes:
         
         logging.info("CNC M-Codes: M72 - Modal state restored")
         gcmd.respond_info("M72: Modal state restored")
-    
-    cmd_M73_help = "Save and auto-restore modal state"
-    def cmd_M73(self, gcmd):
-        """M73 - Save modal state with automatic restore on subroutine return"""
-        state = self._capture_modal_state()
-        state['auto_restore'] = True
-        self.modal_state_stack.append(state)
-        
-        logging.info("CNC M-Codes: M73 - Modal state saved (auto-restore)")
-        gcmd.respond_info("M73: Modal state saved (auto-restore on return)")
-        
-        # TODO: Integrate with subroutine/O-code system for automatic restore
     
     # ========================================================================
     # USER-DEFINED M-CODES (M100-M199)

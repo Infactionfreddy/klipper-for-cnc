@@ -1,0 +1,52 @@
+# Simple Machine Mode Test (Runtime Switching)
+CONFIG machine_mode_switchable.cfg
+DICTIONARY /Users/frede/Documents/Programming/CNC/KlipperCNC/klipper-cnc/test/dicts/atmega644p.dict
+
+# Test 1: Check initial mode
+GET_MACHINE_MODE
+
+# Test 2: Home XYZ
+G28 X Y Z
+
+# Test 3: Move to position
+G90
+G0 X10 Y10 Z10 F3000
+
+# Test 4: Check position
+GET_POSITION
+
+# Test 5: CNC Spindle mode with M3
+SET_MACHINE_MODE MODE=cnc TOOL_MODE=spindle
+M3 S12000
+G4 P1
+M5
+
+# Test 6: CNC Laser mode with M3
+SET_MACHINE_MODE MODE=cnc TOOL_MODE=laser
+M3 S50
+G4 P0.5
+M5
+
+# Test 7: Switch to 3D printer mode with 6-axis movement
+SET_MACHINE_MODE MODE=3d_print
+GET_MACHINE_MODE
+
+# Set extruder position
+SET_KINEMATIC_POSITION E=0
+
+# Test 6-axis 3D printing (XYZABC + Extruder)
+G1 X50 Y50 Z5 A30 B15 C45 E5 F800
+GET_POSITION
+
+# Another 6-axis print move
+G1 X100 Y100 Z10 A60 B30 C90 E10 F800
+GET_POSITION
+
+# Test 8: Test modal state save/restore
+M70
+G91
+M71
+G90
+
+# Test 9: Final position check
+GET_POSITION

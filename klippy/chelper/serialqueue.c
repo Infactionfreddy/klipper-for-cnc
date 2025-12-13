@@ -12,7 +12,9 @@
 // clock times, prioritizes commands, and handles retransmissions.  A
 // background thread is launched to do this work and minimize latency.
 
-#include <linux/can.h> // // struct can_frame
+#ifdef __linux__
+#include <linux/can.h> // struct can_frame
+#endif
 #include <math.h> // fabs
 #include <pthread.h> // pthread_mutex_lock
 #include <stddef.h> // offsetof
@@ -299,6 +301,7 @@ handle_message(struct serialqueue *sq, double eventtime, int len)
 static void
 input_event(struct serialqueue *sq, double eventtime)
 {
+#ifdef __linux__
     if (sq->serial_fd_type == SQT_CAN) {
         struct can_frame cf;
         int ret = read(sq->serial_fd, &cf, sizeof(cf));
@@ -311,7 +314,9 @@ input_event(struct serialqueue *sq, double eventtime)
             return;
         memcpy(&sq->input_buf[sq->input_pos], cf.data, cf.can_dlc);
         sq->input_pos += cf.can_dlc;
-    } else {
+    } else
+#endif
+    {
         int ret = read(sq->serial_fd, &sq->input_buf[sq->input_pos]
                        , sizeof(sq->input_buf) - sq->input_pos);
         if (ret <= 0) {
@@ -360,11 +365,14 @@ kick_event(struct serialqueue *sq, double eventtime)
 static void
 do_write(struct serialqueue *sq, void *buf, int buflen)
 {
+#ifdef __linux__
     if (sq->serial_fd_type != SQT_CAN) {
+#endif
         int ret = write(sq->serial_fd, buf, buflen);
         if (ret < 0)
             report_errno("write", ret);
         return;
+#ifdef __linux__
     }
     // Write to CAN fd
     struct can_frame cf;
@@ -389,6 +397,7 @@ do_write(struct serialqueue *sq, void *buf, int buflen)
         buf += size;
         buflen -= size;
     }
+#endif
 }
 
 // Callback timer for when a retransmit should be done

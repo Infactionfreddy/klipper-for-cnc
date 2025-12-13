@@ -1,0 +1,35 @@
+# Machine Mode Boot-Lock Test
+# Tests: default_mode is LOCKED at boot (cannot be changed)
+CONFIG machine_mode.cfg
+DICTIONARY /Users/frede/Documents/Programming/CNC/KlipperCNC/klipper-cnc/test/dicts/atmega644p.dict
+
+# Test 1: Check initial mode (boot_mode=cnc, locked)
+GET_MACHINE_MODE
+
+# Test 2: Home XYZ
+G28 X Y Z
+
+# Test 3: Move to position
+G90
+G0 X10 Y10 Z10 F3000
+
+# Test 4: CNC Spindle mode (OK - same as boot_mode)
+SET_MACHINE_MODE MODE=cnc TOOL_MODE=spindle
+M3 S12000
+G4 P0.5
+M5
+
+# Test 5: CNC Laser mode (OK - tool_mode switch allowed within cnc mode)
+SET_MACHINE_MODE MODE=cnc TOOL_MODE=laser
+M3 S50
+G4 P0.5
+M5
+
+# Test 6: Back to Spindle
+SET_MACHINE_MODE MODE=cnc TOOL_MODE=spindle
+M3 S8000
+G4 P0.5
+M5
+
+# Test 7: Check position
+GET_POSITION

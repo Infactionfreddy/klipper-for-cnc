@@ -1,0 +1,69 @@
+# Modal State Management Test
+# Tests M70-M72 (save/restore) and M99 S/R (auto-restore)
+CONFIG machine_mode.cfg
+DICTIONARY /Users/frede/Documents/Programming/CNC/KlipperCNC/klipper-cnc/test/dicts/atmega644p.dict
+
+# Setup: CNC mode with spindle
+SET_MACHINE_MODE MODE=cnc TOOL_MODE=spindle
+G28 X Y Z
+G90
+G1 X50 Y50 Z50 F3000
+
+# ========================================================================
+# TEST 11: M70/M72 - Manual Save/Restore
+# ========================================================================
+
+# Start spindle at 10000 RPM
+M3 S10000
+G4 P0.5
+
+# M70: Save current modal state (S10000)
+M70
+
+# Change spindle to 15000 RPM
+M3 S15000
+G4 P0.5
+
+# M72: Restore saved state (should restore S10000)
+M72
+G4 P0.5
+
+# Stop spindle
+M5
+
+# ========================================================================
+# TEST 12: M99 S/R - Auto-Restore with Subroutine Return
+# ========================================================================
+
+# Start spindle at 8000 RPM
+M3 S8000
+G4 P0.5
+
+# M99 S1: Save with auto-restore flag
+M99 S1
+
+# Simulate subroutine: change spindle to 20000 RPM
+M3 S20000
+G4 P0.5
+
+# M99 R1: Return from subroutine (should auto-restore S8000)
+M99 R1
+G4 P0.5
+
+# Stop spindle
+M5
+
+# Test also plain M99 (should also work)
+M3 S6000
+G4 P0.5
+M99 S1
+M3 S18000
+G4 P0.5
+M99
+G4 P0.5
+
+# Stop spindle
+M5
+
+# Final position check
+GET_POSITION

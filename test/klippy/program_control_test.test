@@ -1,0 +1,130 @@
+# Program Control & Modal State Test
+# Tests: M2, M2 R, M70-M72, M99 S/R
+CONFIG machine_mode.cfg
+DICTIONARY /Users/frede/Documents/Programming/CNC/KlipperCNC/klipper-cnc/test/dicts/atmega644p.dict
+
+# Setup: CNC mode with spindle
+SET_MACHINE_MODE MODE=cnc TOOL_MODE=spindle
+G28 X Y Z
+G90
+G1 X50 Y50 Z50 F3000
+
+# ========================================================================
+# TEST 1: M70/M72 - Manual Modal State Save/Restore
+# ========================================================================
+
+# Start spindle at 10000 RPM
+M3 S10000
+G4 P0.5
+
+# M70: Save current modal state
+M70
+
+# Change spindle to 15000 RPM
+M3 S15000
+G4 P0.5
+
+# M72: Restore saved state (should restore S10000)
+M72
+G4 P0.5
+
+# Stop spindle
+M5
+
+# ========================================================================
+# TEST 2: M99 S/R - Auto-Restore with Subroutine Return
+# ========================================================================
+
+# Start spindle at 8000 RPM
+M3 S8000
+G4 P0.5
+
+# M99 S1: Save with auto-restore flag
+M99 S1
+
+# Simulate subroutine: change spindle to 20000 RPM
+M3 S20000
+G4 P0.5
+
+# M99 R1: Return from subroutine (should auto-restore S8000)
+M99 R1
+G4 P0.5
+
+# Stop spindle
+M5
+
+# ========================================================================
+# TEST 3: M99 S1 with plain M99 (also works)
+# ========================================================================
+
+# Start spindle at 6000 RPM
+M3 S6000
+G4 P0.5
+
+# M99 S1: Save with auto-restore
+M99 S1
+
+# Change spindle to 18000 RPM
+M3 S18000
+G4 P0.5
+
+# M99: Plain return (also triggers auto-restore)
+M99
+G4 P0.5
+
+# Stop spindle
+M5
+
+# ========================================================================
+# TEST 4: Nested Modal State (M70/M72 Stack)
+# ========================================================================
+
+# Level 0: Base state
+M3 S5000
+G4 P0.5
+
+# Level 1: First save
+M70
+M3 S8000
+G4 P0.5
+
+# Level 2: Second save
+M70
+M3 S12000
+G4 P0.5
+
+# Restore Level 2 -> Level 1 (S8000)
+M72
+G4 P0.5
+
+# Restore Level 1 -> Level 0 (S5000)
+M72
+G4 P0.5
+
+# Clean up
+M5
+
+# ========================================================================
+# TEST 5: M2 - Program End
+# ========================================================================
+
+# Start new program
+M3 S7000
+G4 P0.5
+
+# M2: Program end (stops spindle, resets to defaults)
+M2
+
+# ========================================================================
+# TEST 6: M2 R1 - Program End with Reset
+# ========================================================================
+
+# Start another program
+M3 S9000
+G4 P0.5
+
+# M2 R1: Program end with reset (ready for restart)
+M2 R1
+
+# Final position check
+GET_POSITION
