@@ -1549,43 +1549,73 @@ class ToolHead:
         gcmd.respond_info(pformat(status))
 
     def get_status(self, eventtime):
+        """Return comprehensive status for all configured axes (XYZABC support)"""
         print_time = self.print_time
         estimated_print_time = self.mcu.estimated_print_time(eventtime)
 
-        # TODO: Update get_status to use info from all kinematics.
+        # Get machine_mode and axis configuration
+        machine_mode = getattr(self.printer, 'machine_mode', 'unknown')
+        axis_names = getattr(self.printer, 'axis_names', self.axis_names)
+        axis_count = getattr(self.printer, 'axis_count', self.axis_count)
+
+        # Collect status from all kinematics
         res = dict()
         for kin in self.kinematics.values():
             new = kin.get_status(eventtime)
             res = self.concat_kin_status(prev=res, new=new, kin=kin)
 
-        # NOTE: Include the extruder limits if configured.
+        # Include the extruder limits if configured
         if self.extruder.get_name():
             e_stepper = self.extruder.extruder_stepper
             if e_stepper is not None:
-                # NOTE: it is ok to use "get_limit_status" instead of "get_status",
-                #       as the information required from the toolhead only concerns
-                #       information from axes, and not extruder-specific parameters.
                 e_status = e_stepper.get_limit_status(eventtime)
                 res = self.concat_kin_status(prev=res, new=e_status, kin=e_stepper)
 
-        # self.printer.lookup_extruder_steppers()  # [ExtruderStepper]
-        extruders = self.printer.lookup_extruders() # PrinterExtruder
+        # Get extruder positions
+        extruders = self.printer.lookup_extruders()
         extruder_positions = {
             extruder_name: extruder.last_position
             for extruder_name, extruder in extruders
         }
 
-        # Add the standard properties.
-        res.update({ 'print_time': print_time,
-                     'stalls': self.print_stall,
-                     'estimated_print_time': estimated_print_time,
-                     'extruder': self.extruder.get_name(),
-                     'position': self.Coord(*self.commanded_pos[:-1], e=self.commanded_pos[-1]),
-                     'extruder_positions': extruder_positions,
-                     'max_velocity': self.max_velocity,
-                     'max_accel': self.max_accel,
-                     'minimum_cruise_ratio': self.min_cruise_ratio,
-                     'square_corner_velocity': self.square_corner_velocity})
+        # Add individual axis positions dynamically based on axis_names
+        pos = self.commanded_pos
+        for i, axis in enumerate(axis_names):
+            if i < len(pos):
+                res[f'position_{axis.lower()}'] = pos[i]
+        
+        # Add extruder position
+        if len(pos) > len(axis_names):
+            res['position_e'] = pos[-1]
+        
+        # Add homed status for each axis
+        for axis in axis_names:
+            axis_lower = axis.lower()
+            # Check if already set by kinematics
+            if f'homed_{axis_lower}' not in res:
+                # Check in homed_axes string
+                homed_axes_str = res.get('homed_axes', '')
+                res[f'homed_{axis_lower}'] = axis_lower in homed_axes_str
+
+        # Add machine mode information
+        res['machine_mode'] = machine_mode
+        res['axis_names'] = axis_names
+        res['axis_count'] = axis_count
+
+        # Add the standard properties
+        res.update({
+            'print_time': print_time,
+            'stalls': self.print_stall,
+            'estimated_print_time': estimated_print_time,
+            'extruder': self.extruder.get_name(),
+            'position': self.Coord(*self.commanded_pos[:-1], e=self.commanded_pos[-1]),
+            'extruder_positions': extruder_positions,
+            'max_velocity': self.max_velocity,
+            'max_accel': self.max_accel,
+            'minimum_cruise_ratio': self.min_cruise_ratio,
+            'square_corner_velocity': self.square_corner_velocity
+        })
+        
         return res
 
     def concat_kin_status(self, prev: dict, new: dict, kin):

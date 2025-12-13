@@ -6,6 +6,40 @@
 import logging, math, os, time
 from . import shaper_calibrate
 
+# TODO: RESONANCE_TESTER_3D_6D - Extend resonance testing for full 3D/6D axis support:
+#       Current implementation only tests X and Y axes in 2D plane (cartesian).
+#       Required changes for 3D (XYZ) and 6D (XYZABC) support:
+#       
+#       1. TestAxis Class Enhancement:
+#          - Change _vib_dir from 2D tuple (x,y) to 3D/6D vector (x,y,z,a,b,c)
+#          - Update get_point(l) to return 6D displacement vector instead of 2D
+#          - Implement rotary axis vibration patterns (angular oscillation)
+#       
+#       2. Parser Extension (_parse_axis):
+#          - Support AXIS=z, AXIS=a, AXIS=b, AXIS=c parameters
+#          - Add combined axis testing: AXIS=xy, AXIS=xyz, AXIS=xyzabc
+#          - Parse 6D vibration direction vectors: AXIS=1,0,0,0,0,0 for pure X
+#       
+#       3. Move Generation (run_test):
+#          - Replace [X+dX, Y+dY, Z] with dynamic position array for all axes
+#          - Calculate vibration amplitudes suitable for rotary axes (degrees vs mm)
+#          - Add safety limits for rotary axis oscillation (prevent wrap-around)
+#       
+#       4. Accelerometer Data Processing:
+#          - Interpret gyroscope data for rotary axes (angular acceleration)
+#          - Map accelerometer readings to appropriate axis coordinate system
+#          - Handle coordinate transformations for tilted/rotated accelerometers
+#       
+#       5. Input Shaper Calibration:
+#          - Extend shaper parameters to 6D (separate shapers per axis)
+#          - Calculate resonance frequencies for rotary inertia vs linear mass
+#          - Support different shaper types per axis (ZV for X, MZV for A, etc.)
+#       
+#       6. Configuration:
+#          - Add per-axis test parameters: test_distance_z, test_distance_a, etc.
+#          - Configure angular velocity limits for rotary axis testing
+#          - Define probe points in 6D space for comprehensive testing
+
 class TestAxis:
     def __init__(self, axis=None, vib_dir=None):
         if axis is None:
@@ -127,7 +161,15 @@ class ResonanceTestExecutor:
     def run_test(self, test_seq, axis, gcmd):
         reactor = self.printer.get_reactor()
         toolhead = self.printer.lookup_object('toolhead')
-        X, Y, Z, E = toolhead.get_position()  # TODO: ADAPT TO XYZABC.
+        # Get position for all configured axes (supports XYZ, XYZA, XYZAB, XYZABC)
+        position = toolhead.get_position()
+        X, Y, Z = position[0], position[1], position[2]
+        # Get additional axes if configured
+        axis_names = getattr(self.printer, 'axis_names', 'XYZ')
+        E = position[3] if len(position) > 3 else 0.0
+        A = position[3] if 'A' in axis_names and len(position) > 3 else 0.0
+        B = position[4] if 'B' in axis_names and len(position) > 4 else 0.0
+        C = position[5] if 'C' in axis_names and len(position) > 5 else 0.0
         # Override maximum acceleration and acceleration to
         # deceleration based on the maximum test frequency
         systime = reactor.monotonic()
@@ -166,10 +208,39 @@ class ResonanceTestExecutor:
                 # The move first goes to a complete stop, then changes direction
                 d_decel = -last_v2 * half_inv_accel
                 decel_X, decel_Y = axis.get_point(d_decel)
-                toolhead.move([X + decel_X, Y + decel_Y, Z, E], abs_last_v)
-                toolhead.move([nX, nY, Z, E], abs_v)
+                # Build move position for all configured axes
+                move_pos = [X + decel_X, Y + decel_Y, Z]
+                if 'A' in axis_names:
+                    move_pos.append(A)
+                if 'B' in axis_names:
+                    move_pos.append(B)
+                if 'C' in axis_names:
+                    move_pos.append(C)
+                if 'E' in axis_names or len(axis_names) == 3:  # Traditional XYZE
+                    move_pos.append(E)
+                toolhead.move(move_pos, abs_last_v)
+                
+                move_pos = [nX, nY, Z]
+                if 'A' in axis_names:
+                    move_pos.append(A)
+                if 'B' in axis_names:
+                    move_pos.append(B)
+                if 'C' in axis_names:
+                    move_pos.append(C)
+                if 'E' in axis_names or len(axis_names) == 3:
+                    move_pos.append(E)
+                toolhead.move(move_pos, abs_v)
             else:
-                toolhead.move([nX, nY, Z, E], max(abs_v, abs_last_v))
+                move_pos = [nX, nY, Z]
+                if 'A' in axis_names:
+                    move_pos.append(A)
+                if 'B' in axis_names:
+                    move_pos.append(B)
+                if 'C' in axis_names:
+                    move_pos.append(C)
+                if 'E' in axis_names or len(axis_names) == 3:
+                    move_pos.append(E)
+                toolhead.move(move_pos, max(abs_v, abs_last_v))
             if math.floor(freq) > math.floor(last_freq):
                 gcmd.respond_info("Testing frequency %.0f Hz" % (freq,))
                 reactor.pause(reactor.monotonic() + 0.01)
@@ -183,7 +254,17 @@ class ResonanceTestExecutor:
             decel_X, decel_Y = axis.get_point(d_decel)
             toolhead.cmd_M204(self.gcode.create_gcode_command(
                 "M204", "M204", {"S": old_max_accel}))
-            toolhead.move([X + decel_X, Y + decel_Y, Z, E], abs(last_v))
+            # Build final move position for all configured axes
+            move_pos = [X + decel_X, Y + decel_Y, Z]
+            if 'A' in axis_names:
+                move_pos.append(A)
+            if 'B' in axis_names:
+                move_pos.append(B)
+            if 'C' in axis_names:
+                move_pos.append(C)
+            if 'E' in axis_names or len(axis_names) == 3:
+                move_pos.append(E)
+            toolhead.move(move_pos, abs(last_v))
         # Restore the original acceleration values
         self.gcode.run_script_from_command(
             "SET_VELOCITY_LIMIT ACCEL=%.3f MINIMUM_CRUISE_RATIO=%.3f"

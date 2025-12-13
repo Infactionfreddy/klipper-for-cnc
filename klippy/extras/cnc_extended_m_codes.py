@@ -57,6 +57,12 @@ class CNCMCodes:
         self.gcode = self.printer.lookup_object('gcode')
         self.reactor = self.printer.get_reactor()
         
+        # Tool control mode: 'laser', 'spindle', or 'auto'
+        self.tool_mode = config.get('tool_mode', 'auto').lower()
+        if self.tool_mode not in ['laser', 'spindle', 'auto']:
+            raise config.error(
+                "cnc_extended_m_codes: tool_mode must be 'laser', 'spindle', or 'auto'")
+        
         # State tracking
         self.optional_stop_enabled = config.getboolean('optional_stop_enabled', True)
         self.spindle_state = {'running': False, 'direction': 0, 'speed': 0}
@@ -81,6 +87,8 @@ class CNCMCodes:
         # References to other components
         self.pause_resume = None
         self.toolhead = None
+        self.laser_control = None
+        self.spindle_control = None
         
         # Register M-Codes
         self._register_commands()
@@ -88,7 +96,7 @@ class CNCMCodes:
         # Register for ready event
         self.printer.register_event_handler("klippy:ready", self._handle_ready)
         
-        logging.info("CNC M-Codes: Comprehensive M-Code support initialized")
+        logging.info(f"CNC M-Codes: Comprehensive M-Code support initialized (tool_mode={self.tool_mode})")
     
     def _handle_ready(self):
         """Initialize references to other printer objects"""
@@ -103,6 +111,37 @@ class CNCMCodes:
         except:
             logging.info("CNC M-Codes: toolhead not available")
             self.toolhead = None
+        
+        # Look for laser_control module
+        try:
+            self.laser_control = self.printer.lookup_object('laser_control')
+            logging.info("CNC M-Codes: laser_control module detected")
+        except:
+            self.laser_control = None
+        
+        # Look for spindle_control module
+        try:
+            self.spindle_control = self.printer.lookup_object('spindle_control')
+            logging.info("CNC M-Codes: spindle_control module detected")
+        except:
+            self.spindle_control = None
+        
+        # Auto-detect tool mode if set to 'auto'
+        if self.tool_mode == 'auto':
+            if self.laser_control and not self.spindle_control:
+                self.tool_mode = 'laser'
+                logging.info("CNC M-Codes: Auto-detected tool_mode=laser")
+            elif self.spindle_control and not self.laser_control:
+                self.tool_mode = 'spindle'
+                logging.info("CNC M-Codes: Auto-detected tool_mode=spindle")
+            elif self.laser_control and self.spindle_control:
+                # Both available, default to spindle
+                self.tool_mode = 'spindle'
+                logging.info("CNC M-Codes: Both modules detected, defaulting to tool_mode=spindle")
+            else:
+                # Neither available, use legacy behavior
+                self.tool_mode = 'legacy'
+                logging.info("CNC M-Codes: No tool modules detected, using legacy M3/M4/M5")
     
     def _register_commands(self):
         """Register all M-Code commands"""
@@ -186,6 +225,14 @@ class CNCMCodes:
         # self.gcode.register_command('M73', self.cmd_M73, 
         #                            desc=self.cmd_M73_help)
         
+        # Tool Mode Control
+        self.gcode.register_mux_command("SET_TOOL_MODE", "MODE", None,
+                                       self.cmd_SET_TOOL_MODE,
+                                       desc=self.cmd_SET_TOOL_MODE_help)
+        self.gcode.register_mux_command("GET_TOOL_MODE", "MODE", None,
+                                       self.cmd_GET_TOOL_MODE,
+                                       desc=self.cmd_GET_TOOL_MODE_help)
+        
         # Register user-defined M-Codes M100-M199
         # These can be overridden by custom shell commands
         # Exclude M-codes that are already registered by core modules:
@@ -226,45 +273,165 @@ class CNCMCodes:
     # SPINDLE CONTROL M-CODES
     # ========================================================================
     
-    cmd_M3_help = "Spindle on, clockwise"
+    cmd_M3_help = "Tool on, clockwise (Laser/Spindle CW) - respects machine_mode and tool_mode"
     def cmd_M3(self, gcmd):
-        """M3 - Start spindle clockwise"""
-        speed = gcmd.get_float('S', self.spindle_state['speed'], minval=0.)
+        """M3 - Start tool clockwise (laser/spindle) - respects machine_mode and tool_mode"""
+        s_value = gcmd.get_float('S', self.spindle_state['speed'], minval=0.)
         
-        self.spindle_state = {
-            'running': True,
-            'direction': 1,  # Clockwise
-            'speed': speed
-        }
+        # Get machine_mode and tool_mode from printer object
+        machine_mode = getattr(self.printer, 'machine_mode', None)
+        tool_mode = getattr(self.printer, 'tool_mode', 'spindle')
         
-        logging.info(f"CNC M-Codes: M3 - Spindle CW at {speed} RPM")
-        gcmd.respond_info(f"M3: Spindle clockwise at S{speed}")
+        # Route based on machine_mode
+        if machine_mode == 'cnc':
+            # CNC mode - check tool_mode
+            if tool_mode == 'laser':
+                if self.laser_control:
+                    power = self.laser_control.m3_start_cw(s_value)
+                    logging.info(f"CNC M-Codes: M3 - Laser ON at S{s_value:.1f} ({power*100:.1f}%)")
+                    gcmd.respond_info(f"M3: Laser ON at S{s_value:.1f}")
+                else:
+                    raise gcmd.error("M3: CNC mode with tool=laser requires [laser_control] section")
+            
+            elif tool_mode == 'spindle':
+                if self.spindle_control:
+                    rpm = self.spindle_control.m3_start_cw(s_value)
+                    logging.info(f"CNC M-Codes: M3 - Spindle CW at {rpm:.0f} RPM")
+                    gcmd.respond_info(f"M3: Spindle CW at {rpm:.0f} RPM")
+                else:
+                    raise gcmd.error("M3: CNC mode with tool=spindle requires [spindle_control] section")
         
-        # TODO: Connect to actual spindle control via HAL pins
-        # This would require HAL integration or output pin configuration
+        elif machine_mode == '3d_print':
+            # 3D Print mode - M3 typically not used
+            gcmd.respond_info(
+                "M3: Not applicable in 3d_print mode. Use M106 for fan control"
+            )
+        
+        elif machine_mode is None:
+            # Fallback: use tool_mode (legacy behavior for backward compatibility)
+            if self.tool_mode == 'laser' and self.laser_control:
+                power = self.laser_control.m3_start_cw(s_value)
+                logging.info(f"CNC M-Codes: M3 - Laser ON at S{s_value:.1f} ({power*100:.1f}%)")
+                gcmd.respond_info(f"M3: Laser ON at S{s_value:.1f}")
+            
+            elif self.tool_mode == 'spindle' and self.spindle_control:
+                rpm = self.spindle_control.m3_start_cw(s_value)
+                logging.info(f"CNC M-Codes: M3 - Spindle CW at {rpm:.0f} RPM")
+                gcmd.respond_info(f"M3: Spindle CW at {rpm:.0f} RPM")
+            
+            else:
+                # Ultimate fallback - just track state
+                self.spindle_state = {
+                    'running': True,
+                    'direction': 1,  # Clockwise
+                    'speed': s_value
+                }
+            logging.info(f"CNC M-Codes: M3 - Tool CW at S{s_value}")
+            gcmd.respond_info(f"M3: Tool clockwise at S{s_value}")
     
-    cmd_M4_help = "Spindle on, counter-clockwise"
+    cmd_M4_help = "Tool on, counter-clockwise (Laser/Spindle CCW) - respects machine_mode and tool_mode"
     def cmd_M4(self, gcmd):
-        """M4 - Start spindle counter-clockwise"""
-        speed = gcmd.get_float('S', self.spindle_state['speed'], minval=0.)
+        """M4 - Start tool counter-clockwise (laser/spindle) - respects machine_mode and tool_mode"""
+        s_value = gcmd.get_float('S', self.spindle_state['speed'], minval=0.)
         
-        self.spindle_state = {
-            'running': True,
-            'direction': -1,  # Counter-clockwise
-            'speed': speed
-        }
+        # Get machine_mode and tool_mode from printer object
+        machine_mode = getattr(self.printer, 'machine_mode', None)
+        tool_mode = getattr(self.printer, 'tool_mode', 'spindle')
         
-        logging.info(f"CNC M-Codes: M4 - Spindle CCW at {speed} RPM")
-        gcmd.respond_info(f"M4: Spindle counter-clockwise at S{speed}")
+        # Route based on machine_mode
+        if machine_mode == 'cnc':
+            # CNC mode - check tool_mode
+            if tool_mode == 'laser':
+                if self.laser_control:
+                    power = self.laser_control.m4_start_ccw(s_value)
+                    logging.info(f"CNC M-Codes: M4 - Laser ON at S{s_value:.1f} ({power*100:.1f}%)")
+                    gcmd.respond_info(f"M4: Laser ON at S{s_value:.1f}")
+                else:
+                    raise gcmd.error("M4: CNC mode with tool=laser requires [laser_control] section")
+            
+            elif tool_mode == 'spindle':
+                if self.spindle_control:
+                    rpm = self.spindle_control.m4_start_ccw(s_value)
+                    logging.info(f"CNC M-Codes: M4 - Spindle CCW at {rpm:.0f} RPM")
+                    gcmd.respond_info(f"M4: Spindle CCW at {rpm:.0f} RPM")
+                else:
+                    raise gcmd.error("M4: CNC mode with tool=spindle requires [spindle_control] section")
+        
+        elif machine_mode == '3d_print':
+            gcmd.respond_info("M4: Not applicable in 3d_print mode")
+        
+        elif machine_mode is None:
+            # Fallback: use tool_mode
+            if self.tool_mode == 'laser' and self.laser_control:
+                power = self.laser_control.m4_start_ccw(s_value)
+                logging.info(f"CNC M-Codes: M4 - Laser ON at S{s_value:.1f} ({power*100:.1f}%)")
+                gcmd.respond_info(f"M4: Laser ON at S{s_value:.1f}")
+            
+            elif self.tool_mode == 'spindle' and self.spindle_control:
+                rpm = self.spindle_control.m4_start_ccw(s_value)
+                logging.info(f"CNC M-Codes: M4 - Spindle CCW at {rpm:.0f} RPM")
+                gcmd.respond_info(f"M4: Spindle CCW at {rpm:.0f} RPM")
+            
+            else:
+                # Legacy behavior
+                self.spindle_state = {
+                    'running': True,
+                    'direction': -1,  # Counter-clockwise
+                    'speed': s_value
+                }
+                logging.info(f"CNC M-Codes: M4 - Tool CCW at S{s_value}")
+                gcmd.respond_info(f"M4: Tool counter-clockwise at S{s_value}")
     
-    cmd_M5_help = "Spindle stop"
+    cmd_M5_help = "Tool stop (Laser/Spindle OFF) - respects machine_mode and tool_mode"
     def cmd_M5(self, gcmd):
-        """M5 - Stop spindle"""
-        self.spindle_state['running'] = False
-        self.spindle_state['direction'] = 0
+        """M5 - Stop tool (laser/spindle) - respects machine_mode and tool_mode"""
         
-        logging.info("CNC M-Codes: M5 - Spindle stop")
-        gcmd.respond_info("M5: Spindle stopped")
+        # Get machine_mode and tool_mode from printer object
+        machine_mode = getattr(self.printer, 'machine_mode', None)
+        tool_mode = getattr(self.printer, 'tool_mode', 'spindle')
+        
+        # Route based on machine_mode
+        if machine_mode == 'cnc':
+            # CNC mode - check tool_mode
+            if tool_mode == 'laser':
+                if self.laser_control:
+                    self.laser_control.m5_stop()
+                    logging.info("CNC M-Codes: M5 - Laser OFF")
+                    gcmd.respond_info("M5: Laser OFF")
+                else:
+                    raise gcmd.error("M5: CNC mode with tool=laser requires [laser_control] section")
+            
+            elif tool_mode == 'spindle':
+                if self.spindle_control:
+                    self.spindle_control.m5_stop()
+                    logging.info("CNC M-Codes: M5 - Spindle STOP")
+                    gcmd.respond_info("M5: Spindle STOP")
+                else:
+                    raise gcmd.error("M5: CNC mode with tool=spindle requires [spindle_control] section")
+        
+        elif machine_mode == '3d_print':
+            gcmd.respond_info("M5: Not applicable in 3d_print mode")
+        
+        elif machine_mode is None:
+            # Fallback: use tool_mode
+            if self.tool_mode == 'laser' and self.laser_control:
+                self.laser_control.m5_stop()
+                logging.info("CNC M-Codes: M5 - Laser OFF")
+                gcmd.respond_info("M5: Laser OFF")
+            
+            elif self.tool_mode == 'spindle' and self.spindle_control:
+                self.spindle_control.m5_stop()
+                logging.info("CNC M-Codes: M5 - Spindle STOP")
+                gcmd.respond_info("M5: Spindle STOP")
+            
+            else:
+            
+        else:
+            # Legacy behavior
+            self.spindle_state['running'] = False
+            self.spindle_state['direction'] = 0
+            logging.info("CNC M-Codes: M5 - Tool stopped")
+            gcmd.respond_info("M5: Tool stopped")
     
     cmd_M19_help = "Orient spindle"
     def cmd_M19(self, gcmd):
@@ -686,9 +853,59 @@ class CNCMCodes:
                 logging.info(f"CNC M-Codes: {mcode_name} - Not configured")
                 gcmd.respond_info(f"{mcode_name}: Not configured (define [shell_command {mcode_name.lower()}] or [gcode_macro {mcode_name}])")
     
+    # ========================================================================
+    # TOOL MODE CONTROL
+    # ========================================================================
+    
+    cmd_SET_TOOL_MODE_help = "Switch between laser and spindle mode"
+    def cmd_SET_TOOL_MODE(self, gcmd):
+        """SET_TOOL_MODE - Switch tool control mode"""
+        mode = gcmd.get('MODE', None)
+        
+        if mode is None:
+            # Query current mode
+            gcmd.respond_info(f"Current tool mode: {self.tool_mode.upper()}")
+            return
+        
+        mode = mode.lower()
+        if mode not in ['laser', 'spindle']:
+            gcmd.respond_info("ERROR: MODE must be 'laser' or 'spindle'")
+            return
+        
+        # Check if requested module is available
+        if mode == 'laser' and not self.laser_control:
+            gcmd.respond_info("ERROR: laser_control module not configured")
+            return
+        
+        if mode == 'spindle' and not self.spindle_control:
+            gcmd.respond_info("ERROR: spindle_control module not configured")
+            return
+        
+        # Switch mode
+        old_mode = self.tool_mode
+        self.tool_mode = mode
+        
+        logging.info(f"CNC M-Codes: Tool mode switched from {old_mode} to {mode}")
+        gcmd.respond_info(f"Tool mode: {mode.upper()} (M3/M4/M5 now control {mode})")
+    
+    cmd_GET_TOOL_MODE_help = "Query current tool mode"
+    def cmd_GET_TOOL_MODE(self, gcmd):
+        """GET_TOOL_MODE - Query current tool control mode"""
+        laser_status = "AVAILABLE" if self.laser_control else "NOT CONFIGURED"
+        spindle_status = "AVAILABLE" if self.spindle_control else "NOT CONFIGURED"
+        
+        gcmd.respond_info(
+            f"Tool Control Status:\n"
+            f"  Current Mode: {self.tool_mode.upper()}\n"
+            f"  Laser Control: {laser_status}\n"
+            f"  Spindle Control: {spindle_status}\n"
+            f"  M3/M4/M5 controls: {self.tool_mode.upper()}"
+        )
+    
     def get_status(self, eventtime):
         """Return status for queries"""
         return {
+            'tool_mode': self.tool_mode,
             'optional_stop_enabled': self.optional_stop_enabled,
             'spindle_running': self.spindle_state['running'],
             'spindle_direction': self.spindle_state['direction'],

@@ -257,6 +257,16 @@ class ProbeG38:
                 probe fails to contact the workpiece. (default True)
             trigger_invert (bool): If true, the probe's trigger logic will
                 be inverted. (default True)
+        
+        TODO: PROBING_SAFETY - Implement safety checks for multi-axis probing:
+              - Add configurable soft limits per axis to prevent collisions during probing
+              - Implement retract distance validation (ensure probe can retract safely)
+              - Add rotary axis (A/B/C) collision detection with workpiece geometry
+              - Validate probe speed limits for rotary axes (angular velocity safety)
+              - Add emergency stop if multiple axes move beyond safe probe zone
+              - Implement probe tool length offset compensation for rotary movements
+              - Add workpiece coordinate system (WCS) boundary checks before probing
+              - Optional: Pre-probe move validation simulation (dry-run mode)
         """
 
         # NOTE: Get the toolhead's last position.
@@ -285,23 +295,26 @@ class ProbeG38:
         #       prior to movement" errors accidentally.
         probe_axes = []
 
-        # NOTE: coordinate code parser copied from "cmd_G1" at "gcode_move.py".
+        # NOTE: coordinate code parser with full XYZABC support
         params = gcmd.get_command_parameters()
         try:
-            # Parse XYZ(ABC) axis move coordinates.
-            for pos, axis in enumerate(list(self.toolhead.axis_map)[:-1]):
+            # Parse all axis move coordinates (XYZ + ABC)
+            # Get axis_names from printer config for dynamic support
+            axis_names = getattr(self.printer, 'axis_names', 'XYZ')
+            
+            for pos, axis in enumerate(axis_names):
                 if axis in params:
                     v = float(params[axis])
                     if not self.absolute_coord:
-                        # Value relative to position of last move.
-                        # Increment last position.
+                        # Value relative to position of last move
                         self.last_position[pos] += v
                     else:
-                        # Absolute value, offset by base coordinate position.
-                        # Overwrite last position.
+                        # Absolute value, offset by base coordinate position
                         self.last_position[pos] = v + self.base_position[pos]
-                    # NOTE: register which axes are being probed
-                    probe_axes.append(axis.lower())  # Append "X", "Y", or "Z".
+                    # Register which axes are being probed (for multi-axis probing)
+                    probe_axes.append(axis.lower())
+            
+            # Parse extruder coordinate
             if 'E' in params:
                 v = float(params['E']) * self.extrude_factor
                 if not self.absolute_coord or not self.absolute_extrude:
@@ -310,8 +323,8 @@ class ProbeG38:
                 else:
                     # value relative to base coordinate position
                     self.last_position[-1] = v + self.base_position[-1]
-                # NOTE: register which axes are being probed
-                probe_axes.append(active_extruder_name)  # Append "extruderN"
+                # Register extruder for probing
+                probe_axes.append(active_extruder_name)
 
             # Parse feedrate
             speed = self.gcode_move.speed  # Default to the main speed (with speed factor applied).
@@ -364,10 +377,8 @@ class ProbeG38:
 
         logging.info("probe_g38 probing with axes: " + str(probe_axes))
 
-        # TODO: rethink if "homing" the machine is neccessary for probing.
-        # curtime = self.printer.get_reactor().monotonic()
-        # if 'z' not in toolhead.get_status(curtime)['homed_axes']:
-        #     raise self.printer.command_error("Must home before probe")
+        # Note: Homing validation removed - G38 probing can be done without prior homing
+        # for touch-off operations and work coordinate system setup
 
         phoming: PrinterHoming = self.printer.lookup_object('homing')
 

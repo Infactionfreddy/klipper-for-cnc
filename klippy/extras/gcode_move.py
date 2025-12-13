@@ -404,7 +404,7 @@ class GCodeMove:
         # Restore the relative E position ().
         # NOTE: The default behaviour is equivalent to a G92 using the saved position of the extruder.
         #       The purpose of it is unclear (added in commit c54b8da530dc724b129066d1f3a825226926c5e6).
-        # TODO: This behaviour causes issues with axis limits on home-able extruders,
+        # BUG: This behaviour causes issues with axis limits on home-able extruders,
         #       as revealed by moves done by Mainsail with the "_CLIENT" macros.
         #       It is now optional through a new parameter in the "[printer]" config section.
         e_diff = self.last_position[-1] - state['last_position'][-1]
@@ -416,64 +416,145 @@ class GCodeMove:
             self.move_with_transform(self.last_position, speed)
 
     cmd_GET_POSITION_help = (
-        "Return information on the current location of the toolhead")
+        "Return comprehensive position information for all configured axes "
+        "(XYZ/XYZA/XYZAB/XYZABC), extruder, and manual steppers"
+    )
     def cmd_GET_POSITION(self, gcmd: GCodeCommand):
-
-        # TODO: add ABC steppers to GET_POSITION.
-        # TODO: add manual steppers to GET_POSITION.
-        if self.axis_names != 'XYZ':
-            gcmd.respond_info('cmd_GET_POSITION: Partial support for extruder position information. Only XYZABC is complete.')
-
+        """Enhanced GET_POSITION with full XYZABC + Manual Stepper support"""
+        
         toolhead = self.printer.lookup_object('toolhead', None)
-
         if toolhead is None:
             raise gcmd.error("Printer not ready")
-
-        # TODO: Add information from the extruder kinematic, if any.
+        
+        # Get machine mode if available
+        machine_mode = getattr(self.printer, 'machine_mode', 'unknown')
+        
+        # ===== PART 1: Quick Position Summary =====
+        toolhead_coords = toolhead.get_position()
+        
+        # Build quick position string for all axes
+        quick_pos_parts = []
+        for axis in self.axis_names:
+            quick_pos_parts.append(f"{axis}:{toolhead_coords[self.axis_map[axis]]:.3f}")
+        
+        # Add extruder position
+        quick_pos_parts.append(f"E:{toolhead_coords[self.axis_map['E']]:.3f}")
+        quick_pos_str = " ".join(quick_pos_parts)
+        
+        # Homed status for all axes
+        homed_parts = []
+        for kin_name, kin in toolhead.kinematics.items():
+            if hasattr(kin, 'get_status'):
+                kin_status = kin.get_status()
+                for axis in self.axis_names:
+                    axis_lower = axis.lower()
+                    homed = kin_status.get(f'homed_{axis_lower}', False)
+                    homed_parts.append(f"{axis}:{'✓' if homed else '✗'}")
+        homed_str = " ".join(homed_parts) if homed_parts else "N/A"
+        
+        # ===== PART 2: Manual Steppers =====
+        manual_stepper_info = []
+        for obj_name in self.printer.objects:
+            if obj_name.startswith('manual_stepper '):
+                stepper_name = obj_name[15:]  # Remove 'manual_stepper ' prefix
+                try:
+                    ms = self.printer.lookup_object(obj_name)
+                    if hasattr(ms, 'get_status'):
+                        status = ms.get_status(self.printer.get_reactor().monotonic())
+                        ms_pos = status.get('pos', 0)
+                        manual_stepper_info.append(f"{stepper_name}:{ms_pos:.3f}")
+                except:
+                    pass
+        
+        manual_stepper_str = " ".join(manual_stepper_info) if manual_stepper_info else "None"
+        
+        # ===== PART 3: Extruder Kinematics (if available) =====
+        extruder_info = ""
+        try:
+            extruder = self.printer.lookup_object('extruder', None)
+            if extruder and hasattr(extruder, 'get_status'):
+                ext_status = extruder.get_status(self.printer.get_reactor().monotonic())
+                extruder_info = (
+                    f"\nExtruder Info:\n"
+                    f"  Temperature: {ext_status.get('temperature', 0):.1f}°C "
+                    f"(target: {ext_status.get('target', 0):.1f}°C)\n"
+                    f"  Pressure Advance: {ext_status.get('pressure_advance', 0):.6f}\n"
+                    f"  Smooth Time: {ext_status.get('smooth_time', 0):.6f}"
+                )
+        except:
+            pass
+        
+        # ===== PART 4: Detailed MCU/Stepper/Kinematic Info =====
         mcu_pos_list = []
         stepper_pos_list = []
         kin_pos_list = []
+        
         for kin_name, kin in toolhead.kinematics.items():
             steppers = kin.get_steppers()
-            # MCU
-            mcu_pos = " ".join(["%s:%d" % (s.get_name(), s.get_mcu_position())
-                                for s in steppers])
-            mcu_pos_list.append(mcu_pos)
-            # Stepper
+            
+            # MCU positions
+            mcu_pos = " ".join([
+                f"{s.get_name()}:{s.get_mcu_position()}"
+                for s in steppers
+            ])
+            mcu_pos_list.append(f"{kin_name}: {mcu_pos}")
+            
+            # Stepper commanded positions
             cinfo = [(s.get_name(), s.get_commanded_position()) for s in steppers]
-            stepper_pos = " ".join(["%s:%.6f" % (a, v) for a, v in cinfo])
-            stepper_pos_list.append(stepper_pos)
-            # Kinematic
+            stepper_pos = " ".join([f"{name}:{pos:.6f}" for name, pos in cinfo])
+            stepper_pos_list.append(f"{kin_name}: {stepper_pos}")
+            
+            # Kinematic calculated positions
             kinfo = zip(kin.axis_names, kin.calc_position(dict(cinfo)))
-            kin_pos = " ".join(["%s:%.6f" % (a, v) for a, v in kinfo])
-            kin_pos_list.append(kin_pos)
-
-        # Toolhead
-        toolhead_coords = toolhead.get_position()
-        toolhead_pos = " ".join(["%s:%.6f" % (a, toolhead_coords[self.axis_map[a]])
-                                for a in self.axis_names + "E"])
-
-        gcode_pos = " ".join(["%s:%.6f"  % (a, self.last_position[self.axis_map[a]])
-                              for a in self.axis_names + "E"])
-
-        base_pos = " ".join(["%s:%.6f"  % (a, self.base_position[self.axis_map[a]])
-                             for a in self.axis_names + "E"])
-
-        homing_pos = " ".join(["%s:%.6f"  % (a, self.homing_position[self.axis_map[a]])
-                               for a in self.axis_names + "E"])
-
-        gcmd.respond_info("mcu: %s\n"
-                          "stepper: %s\n"
-                          "kinematic: %s\n"
-                          "toolhead: %s\n"
-                          "gcode: %s\n"
-                          "gcode base: %s\n"
-                          "gcode homing: %s"
-                          % (" ".join(mcu_pos_list),
-                             " ".join(stepper_pos_list),
-                             " ".join(kin_pos_list),
-                             toolhead_pos,
-                             gcode_pos, base_pos, homing_pos))
+            kin_pos = " ".join([f"{axis}:{pos:.6f}" for axis, pos in kinfo])
+            kin_pos_list.append(f"{kin_name}: {kin_pos}")
+        
+        # ===== PART 5: GCode Coordinate Systems =====
+        # Toolhead position (absolute machine coordinates)
+        toolhead_pos = " ".join([
+            f"{a}:{toolhead_coords[self.axis_map[a]]:.6f}"
+            for a in self.axis_names + "E"
+        ])
+        
+        # GCode position (with offsets applied)
+        gcode_pos = " ".join([
+            f"{a}:{self.last_position[self.axis_map[a]]:.6f}"
+            for a in self.axis_names + "E"
+        ])
+        
+        # Base position (G92 offset)
+        base_pos = " ".join([
+            f"{a}:{self.base_position[self.axis_map[a]]:.6f}"
+            for a in self.axis_names + "E"
+        ])
+        
+        # Homing position
+        homing_pos = " ".join([
+            f"{a}:{self.homing_position[self.axis_map[a]]:.6f}"
+            for a in self.axis_names + "E"
+        ])
+        
+        # ===== Build Final Response =====
+        response = (
+            f"===== POSITION SUMMARY =====\n"
+            f"Machine Mode: {machine_mode}\n"
+            f"Axis Config: {self.axis_names} ({self.axis_count} axes)\n"
+            f"Position: {quick_pos_str}\n"
+            f"Homed: {homed_str}\n"
+            f"Manual Steppers: {manual_stepper_str}"
+            f"{extruder_info}\n"
+            f"\n===== DETAILED POSITIONS =====\n"
+            f"mcu: {', '.join(mcu_pos_list)}\n"
+            f"stepper: {', '.join(stepper_pos_list)}\n"
+            f"kinematic: {', '.join(kin_pos_list)}\n"
+            f"\n===== COORDINATE SYSTEMS =====\n"
+            f"toolhead: {toolhead_pos}\n"
+            f"gcode: {gcode_pos}\n"
+            f"gcode base: {base_pos}\n"
+            f"gcode homing: {homing_pos}"
+        )
+        
+        gcmd.respond_info(response)
 
 def load_config(config):
     return GCodeMove(config)
